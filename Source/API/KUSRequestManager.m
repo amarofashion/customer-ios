@@ -63,7 +63,7 @@ typedef void (^KUSTrackingTokenCompletion)(NSError *error, NSString *trackingTok
 
         [_userSession.trackingTokenDataSource addListener:self];
 
-        [[SDWebImageDownloader sharedDownloader] setHeadersFilter:[self _sdWebImageHeadersFilter]];
+        [[SDWebImageDownloader sharedDownloader] setRequestModifier:[self _sdWebImageRequestFilter]];
     }
     return self;
 }
@@ -258,32 +258,35 @@ typedef void (^KUSTrackingTokenCompletion)(NSError *error, NSString *trackingTok
     }
 }
 
-- (SDHTTPHeadersDictionary *(^)(NSURL *url, SDHTTPHeadersDictionary *headers))_sdWebImageHeadersFilter
+- (SDWebImageDownloaderRequestModifier *) _sdWebImageRequestFilter
 {
     __weak KUSRequestManager *weakSelf = self;
-    return ^SDHTTPHeadersDictionary *(NSURL * url, SDHTTPHeadersDictionary *headers) {
+    return [SDWebImageDownloaderRequestModifier requestModifierWithBlock:^NSURLRequest * _Nullable(NSURLRequest * _Nonnull request) {
+
         __strong KUSRequestManager *strongSelf = weakSelf;
         if (strongSelf == nil) {
-            return headers;
+            return request;
         }
 
         // Only attach auth headers to Kustomer requests
-        BOOL isKustomer = [url.absoluteString hasPrefix:self->_baseUrlString];
+        BOOL isKustomer = [request.URL.absoluteString hasPrefix:strongSelf->_baseUrlString];
         if (isKustomer) {
-            NSMutableDictionary<NSString *, NSString *> *responseHeaders = [(headers ?: @{}) mutableCopy];
-            [responseHeaders addEntriesFromDictionary:strongSelf->_genericHTTPHeaderValues];
+            NSMutableURLRequest *mutableRequest = [request mutableCopy];
+            NSMutableDictionary<NSString *, NSString *> *requestHeaders = [(request.allHTTPHeaderFields ?: @{}) mutableCopy];
+            [requestHeaders addEntriesFromDictionary:_genericHTTPHeaderValues];
 
             // Tracking token
             NSString *trackingToken = strongSelf->_userSession.trackingTokenDataSource.currentTrackingToken;
             if (trackingToken) {
-                [responseHeaders setObject:trackingToken forKey:kKustomerTrackingTokenHeaderKey];
+                [requestHeaders setObject:trackingToken forKey:kKustomerTrackingTokenHeaderKey];
             }
 
-            return responseHeaders;
+            [mutableRequest setAllHTTPHeaderFields:requestHeaders];
+            return mutableRequest;
         }
 
-        return headers;
-    };
+        return request;
+    }];
 }
 
 #pragma mark - KUSObjectDataSourceListener methods
